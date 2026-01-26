@@ -174,7 +174,7 @@ function App() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-
+// Force Re-deploy
   // --- 4. GIAO DIỆN (RENDER) ---
 
   if (!token) {
