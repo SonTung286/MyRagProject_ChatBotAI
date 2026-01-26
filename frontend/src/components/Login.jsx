@@ -7,8 +7,8 @@
  */
 
 import { useState } from 'react';
-import axios from 'axios';
 import { KeyRound, User, LogIn, Mail, ShieldCheck } from 'lucide-react';
+import API from '../utils/api';
 
 const Login = ({ onLoginSuccess }) => {
   // State quản lý màn hình hiện tại
@@ -28,7 +28,7 @@ const Login = ({ onLoginSuccess }) => {
     try {
       // --- TRƯỜNG HỢP 1: ĐĂNG NHẬP ---
       if (view === 'login') {
-        const res = await axios.post('http://localhost:5000/api/login', { 
+        const res = await API.post('/login', { 
             username: formData.username, 
             password: formData.password 
         });
@@ -39,7 +39,7 @@ const Login = ({ onLoginSuccess }) => {
       // --- TRƯỜNG HỢP 2: ĐĂNG KÝ ---
       else if (view === 'register') {
         // Chỉ gửi thông tin cần thiết (tránh lỗi Validation otp not allowed)
-        await axios.post('http://localhost:5000/api/register', { 
+        await API.post('/register', { 
             username: formData.username, 
             password: formData.password, 
             email: formData.email 
@@ -50,7 +50,7 @@ const Login = ({ onLoginSuccess }) => {
       
       // --- TRƯỜNG HỢP 3: XÁC THỰC OTP ---
       else if (view === 'otp') {
-        await axios.post('http://localhost:5000/api/verify-otp', { 
+        await API.post('/verify-otp', { 
             email: formData.email, 
             otp: formData.otp 
         });
