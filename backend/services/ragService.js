@@ -21,7 +21,7 @@ const embeddingModel = genAI.getGenerativeModel({
 
 // 2. KHỞI TẠO LLM (SỬ DỤNG LANGCHAIN ĐỂ QUẢN LÝ CHAT)
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-1.5-flash", // Sửa về 1.5-flash để ổn định nhất
+  model: "gemini-2.5-flash", // Sửa về 1.5-flash để ổn định nhất
   apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
 });
 
