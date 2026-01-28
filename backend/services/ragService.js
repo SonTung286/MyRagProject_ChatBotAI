@@ -16,12 +16,12 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 // Khởi tạo AI
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
 const embeddingModel = genAI.getGenerativeModel({ 
-    model: "text-embedding-004" 
+    model: "text-embedding-005" 
 });
 
 // 2. KHỞI TẠO LLM (SỬ DỤNG LANGCHAIN ĐỂ QUẢN LÝ CHAT)
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-1.5-flash", // Sửa về 1.5-flash để ổn định nhất
+  model: "gemini-2.5-flash",
   apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
 });
 
