@@ -16,7 +16,7 @@ const PORT = process.env.PORT || 5000;
 // --- 1. MIDDLEWARES ---
 app.use(express.json()); // Cho phép đọc JSON từ body
 app.use(cors({
-  origin: '*', // Thực tế nên điền domain frontend, nhưng để '*' cho dễ demo
+  origin: '*',
   methods: ['GET', 'POST', 'DELETE', 'PUT'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token']
 }));

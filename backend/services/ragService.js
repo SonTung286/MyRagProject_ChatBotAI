@@ -14,7 +14,7 @@ const axios = require('axios');
 
 // Khởi tạo AI
 const embeddings = new GoogleGenerativeAIEmbeddings({
-  model: "text-embedding-004",
+  model: "embedding-001",
   apiKey: process.env.GOOGLE_API_KEY
 });
 
