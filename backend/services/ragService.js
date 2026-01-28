@@ -35,6 +35,14 @@ class RagService {
    * @param {string} conversationId - ID cuộc hội thoại (nếu có)
    * @returns {Promise<Object>} - Trả về câu trả lời, nguồn và conversationId mới
    */
+
+  // --- HÀM BỔ TRỢ: LẤY VECTOR TỪ TEXT (SỬ DỤNG SDK GỐC) ---
+  async getEmbedding(text) {
+      // Hàm embedContent trả về object { embedding: { values: [...] } }
+      const result = await embeddingModel.embedContent(text);
+      return result.embedding.values;
+  }
+
   async chat(userId, question, conversationId) {
     // 1. Nếu chưa có conversationId (Chat mới) -> Tạo Session mới trong DB
     let currentConvId = conversationId;
