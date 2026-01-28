@@ -36,9 +36,8 @@ class RagService {
    * @returns {Promise<Object>} - Trả về câu trả lời, nguồn và conversationId mới
    */
 
-  async getEmbedding(text) {
+async getEmbedding(text) {
       try {
-          // Model gemini-embedding-001 dùng hàm embedContent chuẩn
           const result = await embeddingModel.embedContent(text);
           return result.embedding.values;
       } catch (error) {
