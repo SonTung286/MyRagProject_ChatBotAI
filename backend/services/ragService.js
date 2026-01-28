@@ -16,7 +16,7 @@ const { GoogleGenerativeAI } = require("@google/generative-ai");
 // Khởi tạo AI
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
 const embeddingModel = genAI.getGenerativeModel({ 
-    model: "text-embedding-005" 
+    model: "gemini-embedding-001" 
 });
 
 // 2. KHỞI TẠO LLM (SỬ DỤNG LANGCHAIN ĐỂ QUẢN LÝ CHAT)
@@ -36,11 +36,15 @@ class RagService {
    * @returns {Promise<Object>} - Trả về câu trả lời, nguồn và conversationId mới
    */
 
-  // --- HÀM BỔ TRỢ: LẤY VECTOR TỪ TEXT (SỬ DỤNG SDK GỐC) ---
   async getEmbedding(text) {
-      // Hàm embedContent trả về object { embedding: { values: [...] } }
-      const result = await embeddingModel.embedContent(text);
-      return result.embedding.values;
+      try {
+          // Model gemini-embedding-001 dùng hàm embedContent chuẩn
+          const result = await embeddingModel.embedContent(text);
+          return result.embedding.values;
+      } catch (error) {
+          console.error("Lỗi Google Embedding:", error.message);
+          throw new Error("Lỗi tạo vector. Vui lòng kiểm tra lại API Key.");
+      }
   }
 
   async chat(userId, question, conversationId) {
