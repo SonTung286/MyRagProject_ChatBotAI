@@ -11,16 +11,18 @@ const { GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI } = require("@langc
 const { RecursiveCharacterTextSplitter } = require("@langchain/textsplitters");
 const pdf = require('pdf-parse');
 const axios = require('axios');
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 
 // Khởi tạo AI
-const embeddings = new GoogleGenerativeAIEmbeddings({
-  model: "embedding-001",
-  apiKey: process.env.GOOGLE_API_KEY
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
+const embeddingModel = genAI.getGenerativeModel({ 
+    model: "text-embedding-004" 
 });
 
+// 2. KHỞI TẠO LLM (SỬ DỤNG LANGCHAIN ĐỂ QUẢN LÝ CHAT)
 const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  apiKey: process.env.GOOGLE_API_KEY
+  model: "gemini-1.5-flash", // Sửa về 1.5-flash để ổn định nhất
+  apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
 });
 
 class RagService {
@@ -56,7 +58,7 @@ class RagService {
 
     // 3. Tìm kiếm Vector (RAG Core)
     // Chuyển câu hỏi thành vector số học
-    const questionVector = await embeddings.embedQuery(question);
+    const questionVector = await this.getEmbedding(question);
     
     // Tìm 3 đoạn văn bản (limit: 3) trong DB có vector gần giống nhất
     const results = await Document.aggregate([
@@ -134,7 +136,7 @@ class RagService {
 
     // Vector hóa từng đoạn và lưu vào DB
     for (const chunk of output) {
-      const vector = await embeddings.embedQuery(chunk.pageContent);
+      const vector = await this.getEmbedding(chunk.pageContent);
       await Document.create({
         content: chunk.pageContent,
         metadata: { source: file.originalname, cloudLink: file.path },
