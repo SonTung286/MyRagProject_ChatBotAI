@@ -1,170 +1,189 @@
 /**
- * RAG SERVICE LAYER
- * Chứa toàn bộ logic nghiệp vụ (Business Logic) liên quan đến AI và Tài liệu.
- * Controller chỉ việc gọi hàm từ đây mà không cần biết AI chạy thế nào.
+ * RAG SERVICE LAYER - PHIÊN BẢN LOCAL AI (FINAL)
+ * Model: DeepSeek-R1 + Snowflake Embed
  */
 
 const Document = require('../models/Document');
 const ChatHistory = require('../models/ChatHistory');
 const Conversation = require('../models/Conversation');
-const { GoogleGenerativeAIEmbeddings, ChatGoogleGenerativeAI } = require("@langchain/google-genai");
+const { ChatOllama, OllamaEmbeddings } = require("@langchain/ollama");
 const { RecursiveCharacterTextSplitter } = require("@langchain/textsplitters");
 const pdf = require('pdf-parse');
-const axios = require('axios');
-const { GoogleGenerativeAI } = require("@google/generative-ai");
+const fs = require('fs'); // 👈 QUAN TRỌNG: Phải có fs để đọc file local
 
-// Khởi tạo AI
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY);
-const embeddingModel = genAI.getGenerativeModel({ 
-    model: "gemini-embedding-001" 
+// 1. CẤU HÌNH EMBEDDING (Snowflake)
+const embeddingModel = new OllamaEmbeddings({
+  model: "snowflake-arctic-embed2",
+  baseUrl: "http://127.0.0.1:11434",
 });
 
-// 2. KHỞI TẠO LLM (SỬ DỤNG LANGCHAIN ĐỂ QUẢN LÝ CHAT)
-const llm = new ChatGoogleGenerativeAI({
-  model: "gemini-2.5-flash",
-  apiKey: process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY
+// 2. CẤU HÌNH CHAT MODEL (DeepSeek-R1)
+const llm = new ChatOllama({
+  model: "deepseek-r1:8b", // Hoặc 8b nếu máy mạnh
+  temperature: 0.3, 
+  baseUrl: "http://127.0.0.1:11434",
 });
 
 class RagService {
 
   // --- LOGIC 1: CHAT ---
-  /**
-   * Xử lý logic Chat thông minh với AI (Có RAG)
-   * @param {string} userId - ID của người dùng đang chat
-   * @param {string} question - Câu hỏi người dùng nhập
-   * @param {string} conversationId - ID cuộc hội thoại (nếu có)
-   * @returns {Promise<Object>} - Trả về câu trả lời, nguồn và conversationId mới
-   */
 
-async getEmbedding(text) {
+  async getEmbedding(text) {
       try {
-          const result = await embeddingModel.embedContent(text);
-          return result.embedding.values;
+          return await embeddingModel.embedQuery(text);
       } catch (error) {
-          console.error("Lỗi Google Embedding:", error.message);
-          throw new Error("Lỗi tạo vector. Vui lòng kiểm tra lại API Key.");
+          console.error("Lỗi Ollama Embedding:", error.message);
+          throw new Error("Lỗi kết nối Local AI. Hãy bật Ollama!");
       }
   }
 
   async chat(userId, question, conversationId) {
-    // 1. Nếu chưa có conversationId (Chat mới) -> Tạo Session mới trong DB
     let currentConvId = conversationId;
     if (!currentConvId) {
       const newConv = await Conversation.create({
         user: userId,
-        title: question.substring(0, 40) + "..." // Lấy 40 ký tự đầu làm tiêu đề
+        title: question.substring(0, 40) + "..."
       });
       currentConvId = newConv._id;
     }
 
-    // 2. Logic kiểm tra xã giao (Tránh tốn tiền/token AI đọc tài liệu không cần thiết)
-    // Regex cho phép "Xin chào" ở đầu câu, chấp nhận dấu câu phía sau
     const greetingRegex = /^(xin chào|hi|hello|chào bạn|chào ad|chào bot|chào)/i;
     if (greetingRegex.test(question.trim())) {
       const greetingMsg = "Chào bạn! Tôi là trợ lý ảo Tech-Demo. Tôi có thể giúp gì cho bạn?";
-      // Lưu tin nhắn xã giao vào lịch sử chat
       await this.saveHistory(currentConvId, userId, question, greetingMsg, []);
       return { answer: greetingMsg, sources: [], conversationId: currentConvId };
     }
 
-    // 3. Tìm kiếm Vector (RAG Core)
-    // Chuyển câu hỏi thành vector số học
+    console.log("--> [1] Đang tạo vector câu hỏi...");
     const questionVector = await this.getEmbedding(question);
     
-    // Tìm 3 đoạn văn bản (limit: 3) trong DB có vector gần giống nhất
+    console.log("--> [2] Đang tìm kiếm (Limit: 10)...");
     const results = await Document.aggregate([
       {
         "$vectorSearch": {
-          "index": "vector_index", "path": "embedding", "queryVector": questionVector,
-          "numCandidates": 100, "limit": 3
+          "index": "vector_index", 
+          "path": "embedding", 
+          "queryVector": questionVector,
+          "numCandidates": 100, 
+          "limit": 10 
         }
       },
-      { "$project": { "content": 1, "metadata": 1, "_id": 0 } }
+      { "$project": { "content": 1, "metadata": 1, "_id": 0, "score": { "$meta": "vectorSearchScore" } } }
     ]);
 
-    // 4. Tạo Prompt (Kịch bản) cho AI
-    const context = results.length > 0 ? results.map(d => d.content).join("\n---\n") : "Không có thông tin trong tài liệu.";
-    const prompt = `
-      VAI TRÒ CỦA BẠN:
-      Bạn là Trợ lý AI Hỗ trợ Nhân viên (HR Support) của công ty Tech-Demo.
-      Người đang chat với bạn là một nhân viên trong công ty.
-      
-      NHIỆM VỤ:
-      Trả lời câu hỏi của nhân viên dựa trên "KHO DỮ LIỆU NỘI BỘ" được cung cấp bên dưới.
-      
-      QUY TẮC TRẢ LỜI QUAN TRỌNG:
-      1. Tuyệt đối KHÔNG nói câu: "Dựa vào tài liệu bạn cung cấp" (Vì nhân viên không phải là người nạp tài liệu).
-      2. Hãy dùng các cụm từ thay thế như: "Theo quy định của công ty...", "Dựa trên tài liệu nội bộ...", "Theo chính sách Tech-Demo...".
-      3. Giọng văn: Chuyên nghiệp, thân thiện, ngắn gọn và đi thẳng vào vấn đề.
-      4. Nếu thông tin không có trong Kho dữ liệu: Hãy xin lỗi và nói rằng bạn chưa tìm thấy thông tin trong các văn bản hiện hành.
+    const validResults = results.filter(r => r.score > 0.35); 
+    console.log(`--> Tìm thấy ${validResults.length} đoạn văn.`);
 
-      KHO DỮ LIỆU NỘI BỘ:
-      ${context}
+    let answerText = "";
+    let sources = [];
 
-      CÂU HỎI CỦA NHÂN VIÊN: 
-      "${question}"
-    `;
-    
-    const response = await llm.invoke(prompt);
+    if (validResults.length === 0) {
+        answerText = "Xin lỗi bạn, hiện tại tôi chưa tìm thấy thông tin cụ thể về vấn đề này trong các văn bản quy định. 😓\n\nĐể đảm bảo thông tin chính xác nhất, bạn vui lòng liên hệ trực tiếp với **Phòng Nhân sự (HR)** hoặc **Quản lý trực tiếp** để được giải đáp nhé.";
+    } else {
+        const context = validResults.map(d => d.content).join("\n---\n");
+        sources = validResults.map(r => r.metadata.source);
 
-    // 5. Lưu và Trả về kết quả
-    const sources = results.map(r => r.metadata.source);
-    await this.saveHistory(currentConvId, userId, question, response.content, sources);
+        // PROMPT MỚI: CỤ THỂ HƠN ĐỂ TRÁNH LỖI "VẸT"
+        const prompt = `
+          Bạn là một chuyên gia nhân sự (HR) chuyên nghiệp. Nhiệm vụ của bạn là trả lời câu hỏi dựa CHÍNH XÁC vào văn bản cung cấp dưới đây.
+
+          DỮ LIỆU NỀN TẢNG:
+          """
+          ${context}
+          """
+
+          CÂU HỎI CỦA NGƯỜI DÙNG: 
+          "${question}"
+
+          QUY TẮC TRẢ LỜI NGHIÊM NGẶT:
+          1. 🎨 TRÌNH BÀY ĐẸP:
+             - Sử dụng gạch đầu dòng.
+             - Chỉ in đậm các **từ khóa quan trọng** hoặc **con số** (Tuyệt đối KHÔNG in đậm cả một câu dài).
+             - Xuống dòng giữa các ý để dễ đọc.
+
+          2. 🧮 LOGIC SỐ HỌC (QUAN TRỌNG):
+            ⚠️ CHIẾN THUẬT XỬ LÝ (BẮT BUỘC):
+            Bước 1: "SCAN" dữ liệu. Nếu thấy các quy định dạng liệt kê (như: từ A% đến B% được X người; từ B% đến C% được Y người...), hãy bóc tách ra từng cặp điều kiện.
+             - Ví dụ trong đầu bạn phải hình dung:
+               + 10-20% -> 01 người
+               + 20-30% -> 02 người
+               + ...
+            Bước 2: Xác định con số trong câu hỏi (Ví dụ: 15%).
+            Bước 3: Đối chiếu con số đó nằm trong khoảng nào của Bước 1.
+            Bước 4: Lấy chính xác kết quả của khoảng đó. TUYỆT ĐỐI KHÔNG lấy kết quả của dòng bên cạnh.
+
+          3. ✂️ NGẮN GỌN & SÚC TÍCH:
+             - Trả lời thẳng vào câu hỏi.
+             - Bỏ qua các thông tin rườm rà, thủ tục không liên quan (trừ khi được hỏi).
+             - Không lặp lại câu hỏi hay chào hỏi sáo rỗng.
+
+          4. 🛡️ TRUNG THỰC:
+             - Nếu không tìm thấy thông tin khớp với con số trong câu hỏi, hãy trả lời: "Tài liệu hiện tại không đề cập cụ thể đến mức [số %] này."
+        `;
+        
+        console.log("--> [3] Đang gọi DeepSeek-R1...");
+        const response = await llm.invoke(prompt);
+        answerText = response.content;
+    }
+
+    await this.saveHistory(currentConvId, userId, question, answerText, sources);
 
     return {
-      answer: response.content,
-      sources: results.map(r => ({ source: r.metadata.source, content: r.content })),
+      answer: answerText,
+      sources: [...new Set(validResults.map(r => r.metadata.source))].map(s => ({ source: s })),
       conversationId: currentConvId
     };
   }
 
-  /**
-   * Helper: Lưu lịch sử chat vào MongoDB
-   */
   async saveHistory(convId, userId, userMsg, botMsg, sources) {
     await ChatHistory.create({ conversationId: convId, user: userId, role: 'user', content: userMsg });
     await ChatHistory.create({ conversationId: convId, user: userId, role: 'bot', content: botMsg, sources });
   }
 
   // --- LOGIC 2: QUẢN LÝ DỮ LIỆU ---
-  /**
-   * Xử lý file PDF upload lên: Tải về -> Đọc -> Cắt nhỏ -> Vector hóa -> Lưu DB
-   * @param {Object} file - Object file từ Multer (có path Cloudinary)
-   */
+  
+  // File lúc này là object do Multer tạo ra (có path local)
   async ingestFile(file) {
     if (!file) throw new Error("Chưa chọn file!");
     
-    // Tải file từ URL Cloudinary về bộ nhớ đệm (Buffer)
-    const response = await axios.get(file.path, { responseType: 'arraybuffer' });
-    const data = await pdf(response.data);
+    console.log(`--> Đang đọc file local: ${file.path}`);
+    
+    // 👇 SỬA LỖI: Dùng fs đọc file từ ổ cứng (Không dùng axios nữa)
+    const dataBuffer = fs.readFileSync(file.path);
+    const data = await pdf(dataBuffer);
     const text = data.text;
-
+    
     if (!text || text.length < 10) throw new Error("File không có nội dung.");
 
-    // Chia nhỏ văn bản (Chunking) để tìm kiếm chính xác hơn
     const splitter = new RecursiveCharacterTextSplitter({ chunkSize: 1000, chunkOverlap: 200 });
     const output = await splitter.createDocuments([text]);
 
-    // Vector hóa từng đoạn và lưu vào DB
+    console.log(`--> Đang vector hóa ${output.length} chunks...`);
+
+    // Xóa dữ liệu cũ
+    await Document.deleteMany({ "metadata.source": file.originalname });
+
+    // Lưu vector mới
     for (const chunk of output) {
       const vector = await this.getEmbedding(chunk.pageContent);
       await Document.create({
         content: chunk.pageContent,
-        metadata: { source: file.originalname, cloudLink: file.path },
+        metadata: { source: file.originalname }, // path local không cần lưu vào DB cloud
         embedding: vector
       });
     }
-    return { message: "Nạp file thành công!" };
+    
+    console.log("--> Hoàn tất nạp file!");
+    return { message: "Nạp file thành công!", chunks: output.length };
   }
 
-  // --- CÁC HÀM CRUD CƠ BẢN ---
+  // --- LOGIC 3: DASHBOARD HELPERS ---
 
   async getConversations(userId) {
     return await Conversation.find({ user: userId }).sort({ createdAt: -1 });
   }
 
   async getMessages(convId, userId) {
-    // Check quyền: Chỉ chủ sở hữu mới được xem tin nhắn
     const conv = await Conversation.findOne({ _id: convId, user: userId });
     if (!conv) throw new Error("Không có quyền truy cập");
     return await ChatHistory.find({ conversationId: convId }).sort({ createdAt: 1 });
@@ -173,21 +192,28 @@ async getEmbedding(text) {
   async deleteConversation(convId, userId) {
     const conv = await Conversation.findOne({ _id: convId, user: userId });
     if (!conv) throw new Error("Không có quyền xóa");
-
-    // Xóa cả tin nhắn con và session cha
     await ChatHistory.deleteMany({ conversationId: convId });
     await Conversation.findByIdAndDelete(convId);
     return { message: "Đã xóa hội thoại" };
   }
 
-  // Admin Only
+  // Lấy danh sách file kèm ngày giờ cho Dashboard
   async getFiles() {
-    // Group by tên file để đếm số lượng chunk
-    const files = await Document.aggregate([
-      { $group: { _id: "$metadata.source", totalChunks: { $sum: 1 }, lastUploaded: { $max: "$_id" } } },
-      { $sort: { lastUploaded: -1 } }
+    const stats = await Document.aggregate([
+      { 
+        $group: { 
+          _id: "$metadata.source", 
+          totalChunks: { $sum: 1 }, 
+          uploadedAt: { $min: "$createdAt" } // Lấy ngày tạo
+        } 
+      },
+      { $sort: { uploadedAt: -1 } }
     ]);
-    return files.map(f => ({ name: f._id, chunks: f.totalChunks }));
+    return stats.map(f => ({ 
+      name: f._id, 
+      chunks: f.totalChunks,
+      uploadedAt: f.uploadedAt 
+    }));
   }
 
   async deleteFile(fileName) {

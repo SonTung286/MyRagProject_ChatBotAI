@@ -6,6 +6,9 @@ const UserSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: { type: String, enum: ['user', 'admin'], default: 'user' },
   
+  resetPasswordToken: String,
+  resetPasswordExpire: Date,
+
   // --- Thêm phần xác thực ---
   isVerified: { type: Boolean, default: false }, // Chưa xác thực thì chưa đăng nhập được
   otp: { type: String },
@@ -15,3 +18,4 @@ const UserSchema = new mongoose.Schema({
 });
 
 module.exports = mongoose.model('User', UserSchema);
+

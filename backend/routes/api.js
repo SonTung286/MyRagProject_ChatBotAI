@@ -5,77 +5,72 @@
 
 const express = require('express');
 const router = express.Router();
-const multer = require('multer');
-const { storage } = require('../config/cloudinary'); // Lấy cấu hình Cloudinary đã tạo
+
+// 👇 QUAN TRỌNG: Dùng Middleware Upload Local (Không dùng Cloudinary nữa)
+// Đảm bảo bạn đã tạo file backend/middleware/upload.js như hướng dẫn trước
+const upload = require('../middleware/uploadMiddleware'); 
+
 const { validate, schemas } = require('../middleware/validationMiddleware');
 
-// Cấu hình Upload (Sử dụng Cloudinary Storage)
-const upload = multer({ storage });
-
 // --- IMPORT MIDDLEWARE ---
-const authMiddleware = require('../middleware/authMiddleware'); // Kiểm tra đăng nhập
-const adminMiddleware = require('../middleware/adminMiddleware'); // Kiểm tra quyền Admin
+const authMiddleware = require('../middleware/authMiddleware');
+const adminMiddleware = require('../middleware/adminMiddleware');
 
 // --- IMPORT CONTROLLERS ---
 const authController = require('../controllers/authController');
 const ragController = require('../controllers/ragController');
 
 // ==========================================
-// 1. AUTHENTICATION (Xác thực người dùng)
+// 1. AUTHENTICATION
 // ==========================================
-
-// Đăng ký tài khoản mới (Gửi OTP về mail)
 router.post('/register', validate(schemas.register), authController.register);
-
-// Xác thực OTP (Kích hoạt tài khoản)
 router.post('/verify-otp', validate(schemas.verifyOTP), authController.verifyOTP);
-
-// Đăng nhập (Trả về Token)
 router.post('/login', validate(schemas.login), authController.login);
-
+router.post('/auth/forgot-password', authController.forgotPassword);
+router.put('/auth/reset-password/:resetToken', authController.resetPassword);
 
 // ==========================================
-// 2. CHAT & CONVERSATION (Dành cho User)
+// 2. CHAT & CONVERSATION
 // ==========================================
-
-// Chat với AI (Tự động lưu lịch sử)
 router.post('/chat', authMiddleware, validate(schemas.chat), ragController.chatWithAI);
-
-// Lấy danh sách các cuộc hội thoại (Cho Sidebar)
 router.get('/conversations', authMiddleware, ragController.getConversations);
-
-// Lấy chi tiết tin nhắn của 1 cuộc hội thoại
 router.get('/messages/:conversationId', authMiddleware, ragController.getMessages);
-
-// Xóa một cuộc hội thoại
 router.delete('/conversations/:conversationId', authMiddleware, ragController.deleteConversation);
 
-
 // ==========================================
-// 3. ADMIN MANAGEMENT (Quản lý tài liệu)
+// 3. ADMIN MANAGEMENT (Đã sửa lại Route chuẩn)
 // ==========================================
 
-// Upload file PDF lên Cloud & Vector Database
-// (Chạy authMiddleware -> adminMiddleware -> upload -> xử lý logic)
-router.post('/ingest-file', 
-  authMiddleware, 
-  adminMiddleware, 
-  upload.single('file'), 
-  ragController.ingestFile
+// ✅ Route 1: Thống kê Dashboard
+router.get('/admin/stats', 
+    // authMiddleware, // Bật lại khi cần bảo mật
+    ragController.getDashboardStats
 );
 
-// Lấy danh sách các file đã upload
-router.get('/admin/files', 
-  authMiddleware, 
-  adminMiddleware, 
-  ragController.getUploadedFiles
+// ✅ Route 2: Upload file (Local)
+// Frontend gọi: POST /api/admin/upload
+router.post('/admin/upload', 
+    authMiddleware, 
+    // adminMiddleware, // Tạm tắt nếu bạn lười set quyền Admin trong DB
+    upload.single('file'), 
+    ragController.ingestFile
 );
 
-// Xóa file (Xóa trong DB)
-router.delete('/admin/files/:fileName', 
-  authMiddleware, 
-  adminMiddleware, 
-  ragController.deleteFile
+// ✅ Route 3: Xóa file
+// Frontend gọi: DELETE /api/admin/file/:filename
+router.delete('/admin/file/:filename', 
+    authMiddleware, 
+    // adminMiddleware, 
+    ragController.deleteFile
 );
+
+// (Giữ lại route cũ nếu sợ lỗi backward compatibility, nhưng frontend mới không dùng cái này)
+router.get('/admin/files', authMiddleware, ragController.getUploadedFiles);
+
+// Lấy danh sách user
+router.get('/admin/users', authMiddleware, authController.getAllUsers);
+
+// Xóa user
+router.delete('/admin/users/:id', authMiddleware, authController.deleteUser);
 
 module.exports = router;

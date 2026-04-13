@@ -4,16 +4,23 @@ const DocumentSchema = new mongoose.Schema({
   content: { 
     type: String, 
     required: true 
-  }, // Nội dung đoạn văn bản
-  metadata: { 
-    source: String, // Tên file nguồn (ví dụ: Quy_che.pdf)
-  }, 
-  embedding: {
-    type: [Number], // Mảng số thực (Vector) - QUAN TRỌNG
-    required: true,
-    index: 'vector' // Bắt buộc phải có index này (bạn vừa tạo trên web)
   },
-  createdAt: { type: Date, default: Date.now }
+  metadata: {
+    source: { type: String, required: true }, // Tên file
+    // 👇 QUAN TRỌNG: Bỏ 'required: true' hoặc xóa dòng cloudLink đi
+    cloudLink: { type: String }, 
+    page: { type: Number }
+  },
+  embedding: { 
+    type: [Number], 
+    required: true,
+    index: 'vector' // Index cho Atlas Search
+  },
+  // Thêm trường này để biết file nạp lúc nào (phục vụ Dashboard)
+  createdAt: { 
+    type: Date, 
+    default: Date.now 
+  }
 });
 
 module.exports = mongoose.model('Document', DocumentSchema);
